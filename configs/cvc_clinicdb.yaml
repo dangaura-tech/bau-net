@@ -1,0 +1,9 @@
+# CVC-ClinicDB polyp segmentation (612 frames from 29 colonoscopy sequences).
+_base_: _base_.yaml
+
+data:
+  name: folder
+  root: data/cvc_clinicdb
+  train_split: splits/cvc_clinicdb/train.txt
+  val_split: splits/cvc_clinicdb/val.txt
+  image_size: [288, 384]

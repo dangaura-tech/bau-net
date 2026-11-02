@@ -1,0 +1,43 @@
+# Shared defaults; dataset configs inherit from this file via `_base_`.
+seed: 42
+deterministic: false
+
+model:
+  in_channels: 3
+  num_classes: 1
+  widths: [32, 64, 128, 256, 512]
+  attention: true
+  boundary_head: true
+  residual: true
+  dropout: 0.1
+  deep_supervision: true
+
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+  boundary_weight: 0.5
+  boundary_width: 3
+  aux_weight: 0.4
+  focal: false
+
+data:
+  image_size: [352, 352]
+  augment: true
+  normalize: true
+
+train:
+  epochs: 100
+  batch_size: 16
+  eval_batch_size: 16
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  warmup_epochs: 3
+  min_lr_ratio: 0.01
+  grad_clip: 1.0
+  amp: true
+  eval_interval: 1
+  eval_hd95: false
+  monitor: dice
+  early_stop_patience: 20
+  log_interval: 50

@@ -1,0 +1,14 @@
+# ISIC 2018 Task 1 skin lesion segmentation (2,594 dermoscopic images).
+# Prepare with: python scripts/prepare_isic2018.py --src <download dir> --dst data/isic2018
+_base_: _base_.yaml
+
+data:
+  name: folder
+  root: data/isic2018
+  train_split: splits/isic2018/train.txt
+  val_split: splits/isic2018/val.txt
+  image_size: [256, 256]
+
+train:
+  batch_size: 24
+  eval_batch_size: 24

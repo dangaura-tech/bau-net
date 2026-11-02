@@ -1,0 +1,10 @@
+# Baseline: vanilla U-Net (no residual blocks, attention, boundary head or deep supervision).
+_base_: ../kvasir_seg.yaml
+model:
+  attention: false
+  boundary_head: false
+  residual: false
+  deep_supervision: false
+  dropout: 0.0
+loss:
+  boundary_weight: 0.0

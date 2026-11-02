@@ -1,0 +1,22 @@
+# Tiny procedurally generated dataset for smoke tests / CI (runs on CPU in ~1 min).
+_base_: _base_.yaml
+
+model:
+  widths: [8, 16, 32, 64]
+
+data:
+  name: synthetic
+  image_size: [64, 64]
+  train_size: 128
+  val_size: 32
+  normalize: false
+
+train:
+  epochs: 3
+  batch_size: 16
+  eval_batch_size: 16
+  num_workers: 0
+  warmup_epochs: 0
+  amp: false
+  log_interval: 4
+  early_stop_patience: 0

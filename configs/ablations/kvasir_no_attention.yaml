@@ -1,0 +1,4 @@
+# Ablation: plain skip connections instead of attention gates.
+_base_: ../kvasir_seg.yaml
+model:
+  attention: false

@@ -1,0 +1,10 @@
+# Kvasir-SEG polyp segmentation (1,000 colonoscopy images).
+# Prepare with: bash scripts/prepare_kvasir.sh data/kvasir
+_base_: _base_.yaml
+
+data:
+  name: folder
+  root: data/kvasir
+  train_split: splits/kvasir/train.txt
+  val_split: splits/kvasir/val.txt
+  image_size: [352, 352]
