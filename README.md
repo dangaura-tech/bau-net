@@ -13,6 +13,12 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+<img src="assets/demo_synthetic.png" width="560" alt="BAU-Net qualitative demo" />
+
+<sub>CPU sanity demo on procedurally generated shapes: input, ground truth, prediction and the
+MC-dropout + TTA predictive entropy, which concentrates on object contours. Reproduce with
+<code>python tools/demo_figure.py</code> (about 2 minutes on a laptop CPU).</sub>
+
 </div>
 
 ---
@@ -136,6 +142,9 @@ python tools/benchmark.py --config configs/kvasir_seg.yaml
 
 # CPU smoke test that exercises every component (~1 minute)
 python tools/train.py --config configs/synthetic.yaml --device cpu
+
+# qualitative demo figure (input | GT | prediction | uncertainty) on synthetic shapes
+python tools/demo_figure.py --out assets/demo_synthetic.png
 ```
 
 ## Experimental protocol
@@ -174,7 +183,8 @@ bau-net/
 │   ├── engine.py             # trainer (AMP, warmup-cosine, early stopping), evaluation
 │   └── utils/                # YAML configs with inheritance, seeding, logging
 ├── configs/                  # datasets, backbones/, ablations/
-├── tools/                    # train / evaluate / predict / benchmark
+├── tools/                    # train / evaluate / predict / benchmark / demo_figure
+├── assets/                   # README demo media
 ├── scripts/                  # data preparation, splits, ablation runner, result tables
 └── tests/                    # unit + smoke tests for every component
 ```
