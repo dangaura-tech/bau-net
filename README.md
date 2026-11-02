@@ -1,8 +1,8 @@
 <div align="center">
 
-# BAU-Net
+# BAU-Net v2
 
-### Boundary-Aware U-Net with Monte-Carlo Uncertainty for Medical Image Segmentation
+### Boundary- and Uncertainty-Aware Segmentation with Uncertainty-guided Point Refinement
 
 [Dang Truong Minh Le](https://github.com/dangaura-tech)
 
@@ -19,48 +19,80 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## Abstract
 
-Accurate delineation of lesion boundaries is critical in clinical workflows such as
-polyp resection and melanoma excision, yet encoder-decoder networks trained with
-region-based losses tend to produce over-smoothed contours, and they give no indication
-of *where* the prediction should not be trusted. **BAU-Net** addresses both issues within
-a single, lightweight architecture:
+In medical image segmentation, most of the remaining errors sit on a thin band around the
+object contour: polyp borders that blend into the mucosa, lesion edges covered by hair or
+specular highlights. These are also the pixels where a clinician most needs to know whether
+the model can be trusted. Yet standard encoder-decoders spend the same capacity on every
+pixel, optimise region-level losses that hardly notice contour errors, and give no
+calibrated estimate of their own uncertainty.
 
-1. an **auxiliary boundary head** supervised by a morphological boundary band extracted
-   on-the-fly from the ground-truth mask, whose prediction is **fused back** into the
-   mask branch;
-2. **attention-gated skip connections** that suppress irrelevant encoder activations
-   (specular highlights, hair, mucosal folds);
-3. **Monte-Carlo dropout** in the decoder, which yields pixel-wise *predictive entropy*
-   and *mutual information* maps at test time without any extra training.
+**BAU-Net v2** makes the boundary and the model's uncertainty explicit, and uses them to
+decide *where to spend computation*:
 
-The codebase provides a reproducible pipeline (configs, seeds, split files, ablation
-scripts) for **Kvasir-SEG**, **CVC-ClinicDB** and **ISIC 2018**, and works with any dataset
-stored as `images/` + `masks/`.
+1. **Global Context Transformer (GCT).** A pre-norm Transformer bottleneck over the
+   lowest-resolution tokens gives the convolutional encoder (ResNet / ConvNeXt / residual)
+   an image-wide receptive field. Its output projection is zero-initialised, so pretrained
+   features are preserved at the start of training.
+2. **Coupled geometric heads.** A *boundary* head (class-balanced, fused back into the mask
+   branch) and a *signed-distance-field* head (a shape prior) are trained together with
+   the mask. A **mask-SDF consistency** term ties the region and distance representations.
+3. **Uncertainty-guided Point Refinement (UPR).** Pixels are ranked by a selection score
+   that combines the coarse logit margin with the predicted boundary probability. A
+   lightweight point head re-predicts only the top-ranked pixels from full-resolution
+   features plus the coarse mask, boundary and SDF predictions. Training uses importance
+   sampling; inference refines the top-*N* pixels in place.
+4. **Uncertainty you can evaluate.** Monte-Carlo dropout optionally combined with flip
+   test-time augmentation gives entropy, mutual-information and standard-deviation maps.
+   They are scored with uncertainty-error overlap (UEO), error-detection AUROC and pixel
+   ECE, alongside region (Dice / IoU) and contour (Boundary IoU, HD95) metrics.
+
+Every component can be switched off from the config. With all of them disabled, the model
+reduces to a standard U-Net, which is how the ablations are defined.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    X[Image] --> E["Encoder<br/>ResNet / ConvNeXt / Residual<br/>strides 1…32"]
+    E --> G["Global Context<br/>Transformer"]
+    G --> D["Attention-gated decoder<br/>+ MC-dropout"]
+    E -. skip connections .-> D
+    D --> F["Full-res features F"]
+    F --> B["Boundary head B̂"]
+    F --> S["SDF head Ŝ"]
+    B -- "σ(B̂) fusion" --> M["Coarse mask M̂"]
+    F --> M
+    M --> U{"Selection score<br/>−|M̂| + λ·σ(B̂)"}
+    B --> U
+    U -- "top-N / importance-sampled points" --> P["Point head<br/>MLP[F(p), M̂(p), B̂(p), Ŝ(p)]"]
+    S --> P
+    P --> R["Refined mask"]
+```
 
 ## Method
 
-```
-                ┌────────────── attention-gated skips ──────────────┐
-                │                                                   ▼
- image ─► Res-Encoder (5 levels) ─► bottleneck ─► Res-Decoder (MC-dropout) ─► F
-                                                                             │
-                                          ┌──────────────────────────────────┤
-                                          ▼                                  │
-                                   Boundary head ──► B̂ ──► σ(B̂) ⊕ F ─► fuse ─► Mask head ─► M̂
-                                          │                                              │
-                       L_boundary(B̂, ∂M) ◄┘              L_dice(M̂, M) + L_bce(M̂, M) ◄───┘
-```
+**Objective.** With ground-truth mask $M$, its boundary band $\partial M$ (morphological
+gradient) and normalised signed distance field $\mathrm{SDF}(M)$:
 
-**Training objective**
+$$
+\begin{aligned}
+\mathcal{L} \;=\; & \mathcal{L}_{\mathrm{Dice}}(\hat M, M) + \mathcal{L}_{\mathrm{BCE}}(\hat M, M)
+ + \lambda_b\,\mathcal{L}_{\mathrm{wBCE}}(\hat B, \partial M)
+ + \lambda_s\,\lVert \hat S - \mathrm{SDF}(M) \rVert_1 \\
+ & + \lambda_c\,\lVert \sigma(\hat M) - \sigma(-\kappa \hat S) \rVert_1
+ + \lambda_p\,\mathcal{L}_{\mathrm{BCE}}\big(\hat M^{\mathrm{pt}}, M(\mathcal{P})\big)
+ + \lambda_a \textstyle\sum_k \mathcal{L}_{\mathrm{seg}}(\hat M_k, M)
+\end{aligned}
+$$
 
-$$\mathcal{L} = \mathcal{L}_{\text{Dice}}(\hat M, M) + \mathcal{L}_{\text{BCE}}(\hat M, M) + \lambda_b\,\mathcal{L}_{\text{wBCE}}(\hat B, \partial M) + \lambda_{\text{aux}} \sum_k \mathcal{L}_{\text{seg}}(\hat M_k, M)$$
+**Point selection.** $s(p) = -|\hat M(p)| + \lambda_{\mathrm{sel}}\,\sigma(\hat B(p))$.
+During training, $kN$ candidates are drawn uniformly. The $\beta N$ with the highest
+$s$ are kept and $(1-\beta)N$ uniform points are added. At test time, the $N$
+highest-scoring pixels are refined.
 
-where $\partial M = \text{dilate}(M) - \text{erode}(M)$ is computed with max-pooling on the
-GPU, the boundary BCE is class-balanced, and $\hat M_k$ are deep-supervision outputs.
-
-**Uncertainty.** With $T$ stochastic forward passes $p_t$, BAU-Net reports the predictive
-entropy $\mathcal{H}[\bar p]$ and the mutual information
-$\mathcal{H}[\bar p] - \frac{1}{T}\sum_t \mathcal{H}[p_t]$ (epistemic uncertainty).
+**Uncertainty.** For $T$ stochastic passes $p_t$ (dropout and, optionally, flips):
+predictive entropy $\mathcal{H}[\bar p]$, mutual information
+$\mathcal{H}[\bar p] - \tfrac{1}{T}\sum_t \mathcal{H}[p_t]$, and the per-pixel standard deviation.
 
 ## Installation
 
@@ -73,124 +105,102 @@ pip install -r requirements.txt     # or: pip install -e ".[dev]"
 
 ## Data preparation
 
-No data is shipped with this repository. Each script downloads or reorganises the
-official release and writes reproducible split files to `splits/` (seed 2026).
+No data is shipped with this repository. The scripts below download or reorganise the
+official releases and write reproducible split files to `splits/` (seed 2026).
 
 | Dataset | Modality | Images | Command |
 |---|---|---|---|
 | [Kvasir-SEG](https://datasets.simula.no/kvasir-seg/) | colonoscopy | 1,000 | `bash scripts/prepare_kvasir.sh data/kvasir` |
-| [CVC-ClinicDB](https://polyp.grand-challenge.org/CVCClinicDB/) | colonoscopy | 612 | place in `data/cvc_clinicdb/{images,masks}` then `python scripts/make_splits.py --images data/cvc_clinicdb/images --out splits/cvc_clinicdb` |
+| [CVC-ClinicDB](https://polyp.grand-challenge.org/CVCClinicDB/) | colonoscopy | 612 | place in `data/cvc_clinicdb/{images,masks}`, then `python scripts/make_splits.py --images data/cvc_clinicdb/images --out splits/cvc_clinicdb` |
 | [ISIC 2018 Task 1](https://challenge.isic-archive.com/data/#2018) | dermoscopy | 2,594 | `python scripts/prepare_isic2018.py --src <download dir>` |
-
-Expected layout:
-
-```
-data/kvasir/
-├── images/  cju0qkwl35piu0993l0dewei2.jpg ...
-└── masks/   cju0qkwl35piu0993l0dewei2.jpg ...
-splits/kvasir/{train,val,test}.txt
-```
 
 ## Usage
 
-**Training**
-
 ```bash
+# train the full model (ResNet-34 + GCT + boundary/SDF heads + UPR)
 python tools/train.py --config configs/kvasir_seg.yaml
-# any config key can be overridden from the command line
-python tools/train.py --config configs/isic2018.yaml train.lr=5e-4 train.epochs=150 seed=1
-```
 
-Checkpoints (`best.pth`, `last.pth`), `train.log` and `history.jsonl` are written to
-`runs/<config name>/`. Resume with `--resume runs/kvasir_seg/last.pth`.
+# swap the backbone or toggle components from the command line
+python tools/train.py --config configs/kvasir_seg.yaml model.encoder=convnext_tiny model.point_refine=false
 
-**Evaluation** (Dice, IoU, precision, recall, HD95)
-
-```bash
-python tools/evaluate.py --checkpoint runs/kvasir_seg/best.pth \
+# evaluate: Dice, IoU, Boundary IoU, HD95, ECE (+ UEO and uncertainty AUROC with MC-dropout)
+python tools/evaluate.py --checkpoint runs/kvasir_seg/best.pth --mc-samples 8 --tta \
     data.val_split=splits/kvasir/test.txt --out results/kvasir_seg_s42.json
-```
 
-**Inference with uncertainty maps**
+# inference with masks, overlays and uncertainty maps
+python tools/predict.py --checkpoint runs/kvasir_seg/best.pth --input path/to/images \
+    --output predictions --mc-samples 16 --tta
 
-```bash
-python tools/predict.py --checkpoint runs/kvasir_seg/best.pth \
-    --input path/to/images --output predictions --mc-samples 20
-# writes <name>_mask.png, <name>_overlay.png, <name>_uncertainty.png
-```
-
-**Ablations** (full model vs. no boundary head / no attention / plain U-Net, 3 seeds)
-
-```bash
-bash scripts/run_ablations.sh          # aggregates mean ± std into a Markdown table
-```
-
-**Complexity**
-
-```bash
+# parameters, FLOPs and throughput of any config
 python tools/benchmark.py --config configs/kvasir_seg.yaml
-```
 
-**Smoke test on synthetic data (CPU, ~1 minute)**
-
-```bash
+# CPU smoke test that exercises every component (~1 minute)
 python tools/train.py --config configs/synthetic.yaml --device cpu
 ```
+
+## Experimental protocol
+
+`bash scripts/run_ablations.sh` trains every configuration below with three seeds. It
+evaluates each one on the held-out test split with MC-dropout and TTA, and writes a
+mean ± std Markdown table with `scripts/summarize_results.py`.
+
+| Config | GCT | Boundary | SDF + consistency | UPR | Attention gates |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `kvasir_seg` (full) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ablations/kvasir_no_upr` | ✓ | ✓ | ✓ |   | ✓ |
+| `ablations/kvasir_no_gct` |   | ✓ | ✓ | ✓ | ✓ |
+| `ablations/kvasir_no_sdf` | ✓ | ✓ |   | ✓ | ✓ |
+| `ablations/kvasir_no_boundary` | ✓ |   | ✓ | ✓ | ✓ |
+| `ablations/kvasir_no_attention` | ✓ | ✓ | ✓ | ✓ |   |
+| `ablations/kvasir_unet_baseline` |   |   |   |   |   |
+
+Backbone variants live in `configs/backbones/` (ResNet-50, ConvNeXt-T, residual from scratch).
 
 ## Repository structure
 
 ```
 bau-net/
 ├── baunet/
-│   ├── models/        # BAU-Net, residual blocks, attention gates
-│   ├── data/          # folder & synthetic datasets, joint augmentations
-│   ├── losses.py      # Dice, focal, boundary-aware objective
-│   ├── metrics.py     # Dice, IoU, precision, recall, HD95
-│   ├── engine.py      # Trainer (AMP, warmup + cosine, early stopping), evaluate()
-│   └── utils/         # YAML configs with inheritance, seeding, logging
-├── configs/           # dataset configs + ablations/
-├── tools/             # train / evaluate / predict / benchmark
-├── scripts/           # data preparation, splits, ablation runner
-├── tests/             # unit + smoke tests (pytest)
-└── docs/              # implementation notes
+│   ├── models/
+│   │   ├── baunet.py         # BAU-Net v2 assembly
+│   │   ├── encoders.py       # residual / ResNet / ConvNeXt pyramids (strides 1..32)
+│   │   ├── transformer.py    # Global Context Transformer + 2-D sin-cos encodings
+│   │   ├── point_refine.py   # Uncertainty-guided Point Refinement
+│   │   └── blocks.py         # residual blocks, attention gates
+│   ├── geometry.py           # boundary bands, signed distance fields
+│   ├── losses.py             # Dice/BCE + boundary + SDF + consistency + point + deep supervision
+│   ├── metrics.py            # Dice, IoU, Boundary IoU, HD95, ECE, UEO, uncertainty AUROC
+│   ├── data/                 # folder & synthetic datasets, joint augmentations
+│   ├── engine.py             # trainer (AMP, warmup-cosine, early stopping), evaluation
+│   └── utils/                # YAML configs with inheritance, seeding, logging
+├── configs/                  # datasets, backbones/, ablations/
+├── tools/                    # train / evaluate / predict / benchmark
+├── scripts/                  # data preparation, splits, ablation runner, result tables
+└── tests/                    # unit + smoke tests for every component
 ```
-
-## Configuration
-
-Configs are YAML files that inherit from `configs/_base_.yaml` via the `_base_` key.
-The most relevant options:
-
-| Key | Default | Description |
-|---|---|---|
-| `model.widths` | `[32, 64, 128, 256, 512]` | channels per resolution level |
-| `model.boundary_head` | `true` | auxiliary boundary branch + fusion |
-| `model.attention` | `true` | attention gates on skips |
-| `model.dropout` | `0.1` | decoder spatial dropout (MC-dropout) |
-| `loss.boundary_weight` | `0.5` | $\lambda_b$ |
-| `loss.boundary_width` | `3` | width of the boundary band in pixels |
-| `train.amp` | `true` | mixed precision on CUDA |
 
 ## Citation
 
-If you find this code useful, please cite the repository:
-
 ```bibtex
 @misc{le2026baunet,
-  title        = {{BAU-Net}: Boundary-Aware {U-Net} with Monte-Carlo Uncertainty for Medical Image Segmentation},
+  title        = {{BAU-Net}: Boundary- and Uncertainty-Aware Segmentation with Uncertainty-guided Point Refinement},
   author       = {Le, Dang Truong Minh},
   year         = {2026},
   howpublished = {\url{https://github.com/dangaura-tech/bau-net}}
 }
 ```
 
-## Acknowledgements
+## References
 
-This work builds on ideas from U-Net (Ronneberger et al., 2015), Attention U-Net
-(Oktay et al., 2018) and MC-dropout (Gal & Ghahramani, 2016). We thank the creators of
-Kvasir-SEG, CVC-ClinicDB and the ISIC Archive for making their data publicly available.
+- Ronneberger et al., *U-Net*, MICCAI 2015 · Oktay et al., *Attention U-Net*, MIDL 2018
+- Kirillov et al., *PointRend: Image Segmentation as Rendering*, CVPR 2020
+- Chen et al., *TransUNet*, 2021 · Liu et al., *A ConvNet for the 2020s*, CVPR 2022
+- Ma et al., *How Distance Transform Maps Boost Segmentation CNNs*, MIDL 2020
+- Cheng et al., *Boundary IoU*, CVPR 2021 · Gal & Ghahramani, *MC-Dropout*, ICML 2016
+- Jungo & Reyes, *Assessing Reliability and Challenges of Uncertainty Estimations for Medical Image Segmentation*, MICCAI 2019
 
 ## License
 
-Code is released under the [MIT License](LICENSE). The datasets are subject to their own
+Code is released under the [MIT License](LICENSE). Datasets are subject to their own
 licenses and are intended for research use only. **This software is not a medical device
 and must not be used for clinical decision making.**
