@@ -30,6 +30,8 @@ def main() -> None:
     p.add_argument("--config", default=None, help="defaults to the config stored in the checkpoint")
     p.add_argument("--out", default=None, help="optional JSON file for the metrics")
     p.add_argument("--threshold", type=float, default=0.5)
+    p.add_argument("--mc-samples", type=int, default=0, help="MC-dropout samples (>0 adds uncertainty metrics)")
+    p.add_argument("--tta", action="store_true", help="flip test-time augmentation (with --mc-samples)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("overrides", nargs="*")
     args = p.parse_args()
@@ -43,7 +45,15 @@ def main() -> None:
     model = build_model(cfg)
     model.load_state_dict(ckpt["model"])
     device = torch.device(args.device)
-    metrics = evaluate(model.to(device), loader, device, compute_hd95=True, threshold=args.threshold)
+    metrics = evaluate(
+        model.to(device),
+        loader,
+        device,
+        compute_hd95=True,
+        threshold=args.threshold,
+        mc_samples=args.mc_samples,
+        tta=args.tta,
+    )
 
     width = max(map(len, metrics))
     for k, v in metrics.items():

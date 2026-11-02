@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "BAU-Net: Boundary-Aware U-Net with Monte-Carlo Uncertainty for Medical Image Segmentation"
+title: "BAU-Net: Boundary- and Uncertainty-Aware Segmentation with Uncertainty-guided Point Refinement"
 authors:
   - family-names: Le
     given-names: Dang Truong Minh
@@ -8,5 +8,5 @@ authors:
     email: dang.le@mbzuai.ac.ae
 repository-code: "https://github.com/dangaura-tech/bau-net"
 license: MIT
-version: 0.1.0
+version: 0.2.0
 date-released: 2026-11-02

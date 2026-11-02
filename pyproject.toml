@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "baunet"
-version = "0.1.0"
-description = "Boundary-Aware U-Net with Monte-Carlo uncertainty for medical image segmentation"
+version = "0.2.0"
+description = "Boundary- and uncertainty-aware medical image segmentation with uncertainty-guided point refinement"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

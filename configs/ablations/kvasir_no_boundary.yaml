@@ -1,4 +1,4 @@
-# Ablation: remove the boundary head and boundary loss.
+# Ablation: remove the boundary head (UPR then selects points by mask margin only).
 _base_: ../kvasir_seg.yaml
 model:
   boundary_head: false

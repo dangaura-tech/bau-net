@@ -1,0 +1,6 @@
+# Ablation: remove Uncertainty-guided Point Refinement.
+_base_: ../kvasir_seg.yaml
+model:
+  point_refine: false
+loss:
+  point_weight: 0.0

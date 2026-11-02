@@ -1,13 +1,25 @@
-# Shared defaults; dataset configs inherit from this file via `_base_`.
+# Shared defaults (full BAU-Net v2). Dataset configs inherit from this file via `_base_`.
 seed: 42
 deterministic: false
 
 model:
   in_channels: 3
   num_classes: 1
-  widths: [32, 64, 128, 256, 512]
+  encoder: resnet34            # residual | resnet18 | resnet34 | resnet50 | convnext_tiny
+  pretrained: true
+  widths: [32, 64, 128, 256, 512]   # residual encoder widths; widths[0] = full-resolution stem
+  decoder_max_width: 256
+  bottleneck: transformer      # conv | transformer (Global Context Transformer)
+  transformer_dim: 256
+  transformer_depth: 4
+  transformer_heads: 8
   attention: true
   boundary_head: true
+  sdf_head: true
+  point_refine: true           # Uncertainty-guided Point Refinement
+  refine_train_points: 2048
+  refine_eval_points: 8192
+  refine_boundary_weight: 1.0
   residual: true
   dropout: 0.1
   deep_supervision: true
@@ -17,6 +29,10 @@ loss:
   bce_weight: 1.0
   boundary_weight: 0.5
   boundary_width: 3
+  sdf_weight: 0.5
+  consistency_weight: 0.2
+  consistency_kappa: 50.0
+  point_weight: 1.0
   aux_weight: 0.4
   focal: false
 
@@ -30,7 +46,7 @@ train:
   batch_size: 16
   eval_batch_size: 16
   num_workers: 4
-  lr: 1.0e-3
+  lr: 1.0e-4
   weight_decay: 1.0e-4
   warmup_epochs: 3
   min_lr_ratio: 0.01

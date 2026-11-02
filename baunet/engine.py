@@ -49,13 +49,21 @@ def evaluate(
     device: torch.device,
     compute_hd95: bool = True,
     threshold: float = 0.5,
+    mc_samples: int = 0,
+    tta: bool = False,
 ) -> Dict[str, float]:
+    """Evaluate a model; with ``mc_samples > 0`` predictions are MC-dropout (+TTA) averages and
+    the uncertainty metrics (UEO, uncertainty AUROC) are reported as well."""
     model.eval()
     meter = SegmentationMeter(threshold=threshold, compute_hd95=compute_hd95)
     for batch in loader:
         image = batch["image"].to(device, non_blocking=True)
         mask = batch["mask"].to(device, non_blocking=True)
-        meter.update(model(image)["mask"], mask)
+        if mc_samples > 0:
+            res = model.predict_with_uncertainty(image, n_samples=mc_samples, tta=tta)
+            meter.update_prob(res["prob"], mask, uncertainty=res["entropy"])
+        else:
+            meter.update(model(image)["mask"], mask)
     return meter.compute()
 
 
@@ -179,4 +187,4 @@ class Trainer:
 def _to_float(v):
     if isinstance(v, list):
         return [x.float() for x in v]
-    return v.float()
+    return v.float() if v.is_floating_point() else v

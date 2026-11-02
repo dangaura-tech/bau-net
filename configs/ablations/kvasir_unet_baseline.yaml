@@ -1,0 +1,16 @@
+# Baseline: ResNet-34 U-Net with every BAU-Net component disabled.
+_base_: ../kvasir_seg.yaml
+model:
+  bottleneck: conv
+  attention: false
+  boundary_head: false
+  sdf_head: false
+  point_refine: false
+  deep_supervision: false
+  dropout: 0.0
+loss:
+  boundary_weight: 0.0
+  sdf_weight: 0.0
+  consistency_weight: 0.0
+  point_weight: 0.0
+  aux_weight: 0.0

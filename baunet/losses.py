@@ -1,4 +1,12 @@
-"""Loss functions for boundary-aware segmentation."""
+"""Training objective of BAU-Net.
+
+L = L_dice + L_bce                                (mask)
+  + λ_b   · L_wbce(B̂, ∂M)                         (class-balanced boundary)
+  + λ_sdf · ||Ŝ - SDF(M)||_1                      (shape prior)
+  + λ_c   · ||σ(M̂) - σ(-κ·Ŝ)||_1                  (mask / SDF consistency)
+  + λ_pt  · BCE(point logits, M(p))               (uncertainty-guided points)
+  + λ_aux · mean_k L_seg(M̂_k, M)                  (deep supervision)
+"""
 
 from __future__ import annotations
 
@@ -8,21 +16,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .geometry import mask_to_boundary, signed_distance
+from .models.point_refine import point_sample
 
-def mask_to_boundary(mask: torch.Tensor, width: int = 3) -> torch.Tensor:
-    """Extract a boundary band of roughly ``width`` pixels from a binary mask.
-
-    Uses the morphological gradient (dilation - erosion) implemented with max-pooling,
-    so it runs on the GPU and is differentiable-free (used only for targets).
-
-    Args:
-        mask: tensor of shape (B, 1, H, W) with values in {0, 1}.
-    """
-    k = 2 * (width // 2) + 1
-    pad = k // 2
-    dilated = F.max_pool2d(mask, k, stride=1, padding=pad)
-    eroded = -F.max_pool2d(-mask, k, stride=1, padding=pad)
-    return (dilated - eroded).clamp(0, 1)
+__all__ = ["mask_to_boundary", "DiceLoss", "FocalLoss", "BoundaryAwareLoss", "build_loss"]
 
 
 class DiceLoss(nn.Module):
@@ -54,19 +51,16 @@ class FocalLoss(nn.Module):
 
 
 class BoundaryAwareLoss(nn.Module):
-    """Total objective  L = L_dice + L_bce + lambda_b * L_boundary (+ deep supervision).
-
-    The boundary term is a class-balanced BCE between the boundary head and a boundary
-    band extracted from the ground-truth mask; positive pixels are re-weighted because
-    boundaries occupy only a small fraction of the image.
-    """
-
     def __init__(
         self,
         dice_weight: float = 1.0,
         bce_weight: float = 1.0,
         boundary_weight: float = 0.5,
         boundary_width: int = 3,
+        sdf_weight: float = 0.5,
+        consistency_weight: float = 0.2,
+        consistency_kappa: float = 50.0,
+        point_weight: float = 1.0,
         aux_weight: float = 0.4,
         focal: bool = False,
     ) -> None:
@@ -77,6 +71,10 @@ class BoundaryAwareLoss(nn.Module):
         self.bce_weight = bce_weight
         self.boundary_weight = boundary_weight
         self.boundary_width = boundary_width
+        self.sdf_weight = sdf_weight
+        self.consistency_weight = consistency_weight
+        self.kappa = consistency_kappa
+        self.point_weight = point_weight
         self.aux_weight = aux_weight
 
     def _seg(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -91,9 +89,17 @@ class BoundaryAwareLoss(nn.Module):
             losses["boundary"] = self.boundary_weight * F.binary_cross_entropy_with_logits(
                 outputs["boundary"], b_target, pos_weight=pos_weight
             )
-        if "aux" in outputs:
-            aux = torch.stack([self._seg(a, target) for a in outputs["aux"]]).mean()
-            losses["aux"] = self.aux_weight * aux
+        if "sdf" in outputs:
+            if self.sdf_weight > 0:
+                losses["sdf"] = self.sdf_weight * F.l1_loss(outputs["sdf"], signed_distance(target))
+            if self.consistency_weight > 0:
+                from_sdf = torch.sigmoid(-self.kappa * outputs["sdf"])
+                losses["consistency"] = self.consistency_weight * F.l1_loss(torch.sigmoid(outputs["mask"]), from_sdf)
+        if "point_logits" in outputs and self.point_weight > 0:
+            labels = point_sample(target, outputs["point_coords"], mode="nearest")
+            losses["point"] = self.point_weight * F.binary_cross_entropy_with_logits(outputs["point_logits"], labels)
+        if "aux" in outputs and self.aux_weight > 0:
+            losses["aux"] = self.aux_weight * torch.stack([self._seg(a, target) for a in outputs["aux"]]).mean()
         losses["total"] = sum(losses.values())
         return losses
 

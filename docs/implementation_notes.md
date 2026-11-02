@@ -25,3 +25,40 @@ loss so the Dice denominator and `log` terms are computed in full precision.
   deterministic cuDNN kernels (slower).
 * Split files are generated with a fixed seed (2026) by `scripts/make_splits.py`.
 * The resolved config is stored in every checkpoint and in `runs/<name>/config.json`.
+
+## v2 components
+
+### Encoders
+`TorchvisionEncoder` turns ResNet/ConvNeXt into a 6-level pyramid (strides 1, 2, 4, 8, 16,
+32). A light full-resolution `ConvBlock` stem is added so that the last decoder stage has
+pixel-accurate features for the boundary/SDF heads and the point head. ConvNeXt, whose
+first stage is stride 4, also gets a stride-2 conv stem. Channel widths are discovered with
+a dummy forward pass, so new backbones only need a stage list.
+
+### Global Context Transformer
+Tokens from the stride-32 map are projected to `transformer_dim` and given fixed 2-D
+sine-cosine position encodings, so any input resolution works without interpolating learned
+embeddings. The output projection is zero-initialised, which makes the block an identity at
+initialisation and protects the pretrained encoder features early in training.
+
+### Signed distance targets
+`geometry.signed_distance` uses SciPy's exact Euclidean distance transform on CPU. Each
+side of the contour is normalised separately so small and large objects contribute
+comparably. The consistency term compares `sigmoid(mask)` with `sigmoid(-kappa * sdf)`;
+`kappa = 50` turns the normalised SDF into a sharp soft mask.
+
+### Uncertainty-guided Point Refinement
+* Point features: bilinear samples of the full-resolution decoder features and of the coarse
+  mask logit, boundary logit and SDF (`point_sample`, `align_corners=False`, so pixel centres
+  are sampled exactly).
+* The point head predicts a *residual* to the coarse logit and is zero-initialised: the
+  refined mask equals the coarse mask at initialisation.
+* Training: oversample 3x, keep 75 % by score, 25 % uniform. Inference: refine the top
+  `refine_eval_points` pixels (scattered back in place). `mask_coarse` is also returned.
+
+### Uncertainty metrics
+* **UEO**: maximum Dice between the thresholded (min-max normalised) uncertainty map and the
+  error map over 49 thresholds.
+* **Uncertainty AUROC**: rank-based AUROC (with tie handling) of uncertainty for separating
+  erroneous from correct pixels.
+* **ECE**: 15 equal-width bins over pixel probabilities.

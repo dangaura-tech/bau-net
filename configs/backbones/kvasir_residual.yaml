@@ -1,0 +1,8 @@
+# Kvasir-SEG with a residual encoder.
+_base_: ../kvasir_seg.yaml
+model:
+  encoder: residual
+  pretrained: false
+  widths: [32, 64, 128, 256, 512]
+train:
+  lr: 1.0e-3

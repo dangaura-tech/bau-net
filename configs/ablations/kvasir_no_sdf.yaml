@@ -1,0 +1,7 @@
+# Ablation: remove the signed-distance head and the mask/SDF consistency loss.
+_base_: ../kvasir_seg.yaml
+model:
+  sdf_head: false
+loss:
+  sdf_weight: 0.0
+  consistency_weight: 0.0

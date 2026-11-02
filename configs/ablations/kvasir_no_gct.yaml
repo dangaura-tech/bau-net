@@ -1,0 +1,4 @@
+# Ablation: convolutional bottleneck instead of the Global Context Transformer.
+_base_: ../kvasir_seg.yaml
+model:
+  bottleneck: conv

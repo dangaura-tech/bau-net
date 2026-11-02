@@ -1,0 +1,5 @@
+# Kvasir-SEG with a convnext_tiny encoder.
+_base_: ../kvasir_seg.yaml
+model:
+  encoder: convnext_tiny
+

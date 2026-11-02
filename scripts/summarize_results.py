@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-METRICS = ["dice", "iou", "precision", "recall", "hd95"]
+METRICS = ["dice", "iou", "boundary_iou", "hd95", "ece", "ueo", "unc_auroc"]
 
 
 def main() -> None:
