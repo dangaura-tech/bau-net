@@ -1,0 +1,5 @@
+# Kvasir-SEG with a resnet50 encoder.
+_base_: ../kvasir_seg.yaml
+model:
+  encoder: resnet50
+

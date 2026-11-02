@@ -43,6 +43,24 @@ def test_config_inheritance_and_overrides():
     cfg = load_config("configs/ablations/kvasir_no_boundary.yaml")
     assert cfg["model"]["boundary_head"] is False
     assert cfg["model"]["attention"] is True  # inherited from _base_
+    assert cfg["model"]["point_refine"] is True and cfg["model"]["encoder"] == "resnet34"
     assert cfg["data"]["root"] == "data/kvasir"
     cfg = merge_overrides(cfg, ["train.lr=5e-4", "model.widths=[16,32]"])
     assert cfg["train"]["lr"] == 5e-4 and cfg["model"]["widths"] == [16, 32]
+
+
+def test_every_config_builds_a_model():
+    import glob
+
+    import torch
+
+    from baunet.models import build_model
+
+    for path in sorted(glob.glob("configs/**/*.yaml", recursive=True)):
+        if path.endswith("_base_.yaml"):
+            continue
+        cfg = load_config(path)
+        cfg["model"]["pretrained"] = False  # no downloads in tests
+        model = build_model(cfg).eval()
+        with torch.no_grad():
+            assert model(torch.randn(1, 3, 64, 64))["mask"].shape == (1, 1, 64, 64), path
