@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "baunet"
+version = "0.1.0"
+description = "Boundary-Aware U-Net with Monte-Carlo uncertainty for medical image segmentation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Dang Truong Minh Le", email = "dang.le@mbzuai.ac.ae" }]
+dependencies = ["torch>=2.3", "torchvision>=0.18", "numpy>=1.24", "scipy>=1.10", "Pillow>=9.5", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["baunet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
