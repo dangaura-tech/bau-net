@@ -13,7 +13,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from baunet.models import build_model  # noqa: E402
-from baunet.utils import load_config  # noqa: E402
+from baunet.utils import load_config, merge_overrides  # noqa: E402
 
 
 def main() -> None:
@@ -22,9 +22,10 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--iters", type=int, default=50)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("overrides", nargs="*", help="config overrides, e.g. model.pretrained=false")
     args = p.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = merge_overrides(load_config(args.config), args.overrides)
     device = torch.device(args.device)
     model = build_model(cfg).to(device).eval()
     h, w = cfg["data"].get("image_size", [352, 352])

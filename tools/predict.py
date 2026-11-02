@@ -38,6 +38,7 @@ def main() -> None:
     p.add_argument("--input", required=True, help="image file or directory")
     p.add_argument("--output", default="predictions")
     p.add_argument("--mc-samples", type=int, default=0, help=">0 enables Monte-Carlo dropout uncertainty")
+    p.add_argument("--tta", action="store_true", help="flip test-time augmentation (with --mc-samples)")
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args()
@@ -67,7 +68,7 @@ def main() -> None:
         x = x.to(device)
         with torch.no_grad():
             if args.mc_samples > 0:
-                res = model.predict_with_uncertainty(x, n_samples=args.mc_samples)
+                res = model.predict_with_uncertainty(x, n_samples=args.mc_samples, tta=args.tta)
                 prob, unc = res["prob"], res["mutual_info"]
             else:
                 prob, unc = torch.sigmoid(model(x)["mask"]), None
