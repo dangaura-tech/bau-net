@@ -17,7 +17,7 @@ jobs:
       - name: Install (CPU PyTorch)
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev]"
+          pip install -e ".[dev,onnx]"
       - name: Lint
         run: ruff check .
       - name: Unit tests
