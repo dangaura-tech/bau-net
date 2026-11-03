@@ -140,11 +140,33 @@ python tools/predict.py --checkpoint runs/kvasir_seg/best.pth --input path/to/im
 # parameters, FLOPs and throughput of any config
 python tools/benchmark.py --config configs/kvasir_seg.yaml
 
+# export to ONNX (verified against PyTorch with ONNX Runtime); needs `pip install -e ".[onnx]"`
+python tools/export_onnx.py --checkpoint runs/kvasir_seg/best.pth --out exports/baunet_kvasir.onnx
+
 # CPU smoke test that exercises every component (~1 minute)
 python tools/train.py --config configs/synthetic.yaml --device cpu
 
 # qualitative demo figure (input | GT | prediction | uncertainty) on synthetic shapes
 python tools/demo_figure.py --out assets/demo_synthetic.png
+```
+
+## Deployment
+
+`tools/export_onnx.py` exports the network as `image (B, 3, H, W) → probability (B, 1, H, W)`
+with a dynamic batch dimension and checks it with ONNX Runtime against PyTorch.
+
+* The spatial size is **fixed at export time** (default: `data.image_size` of the config).
+  The Global Context Transformer's positional encoding and the point-refinement budget
+  depend on the feature-map size, so export once per deployment resolution.
+* Uncertainty-guided point refinement exports as standard `TopK` / `ScatterElements` ops.
+  Use `--no-refine` for a smaller graph that returns the coarse mask.
+* The input must be normalised exactly as in training (ImageNet mean/std, unless
+  `data.normalize: false`).
+
+```python
+import numpy as np, onnxruntime as ort
+sess = ort.InferenceSession("exports/baunet_kvasir.onnx", providers=["CPUExecutionProvider"])
+prob = sess.run(None, {"image": batch.astype(np.float32)})[0]   # (B, 1, H, W) in [0, 1]
 ```
 
 ## Experimental protocol
@@ -181,9 +203,10 @@ bau-net/
 │   ├── metrics.py            # Dice, IoU, Boundary IoU, HD95, ECE, UEO, uncertainty AUROC
 │   ├── data/                 # folder & synthetic datasets, joint augmentations
 │   ├── engine.py             # trainer (AMP, warmup-cosine, early stopping), evaluation
+│   ├── export.py             # ONNX export + ONNX Runtime parity check
 │   └── utils/                # YAML configs with inheritance, seeding, logging
 ├── configs/                  # datasets, backbones/, ablations/
-├── tools/                    # train / evaluate / predict / benchmark / demo_figure
+├── tools/                    # train / evaluate / predict / benchmark / export_onnx / demo_figure
 ├── assets/                   # README demo media
 ├── scripts/                  # data preparation, splits, ablation runner, result tables
 └── tests/                    # unit + smoke tests for every component
