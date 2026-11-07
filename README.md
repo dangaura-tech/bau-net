@@ -169,6 +169,33 @@ sess = ort.InferenceSession("exports/baunet_kvasir.onnx", providers=["CPUExecuti
 prob = sess.run(None, {"image": batch.astype(np.float32)})[0]   # (B, 1, H, W) in [0, 1]
 ```
 
+## Active learning: what to annotate next
+
+Pixel-accurate masks are the bottleneck of medical segmentation. `tools/active_select.py`
+uses the model's own Monte-Carlo dropout uncertainty to rank a pool of unlabelled images, so
+an expert's limited annotation time goes to the most informative cases.
+
+| Strategy | Image score |
+|---|---|
+| `entropy` | mean predictive entropy (total uncertainty) |
+| `bald` | mean mutual information, the epistemic part that more labels can reduce |
+| `boundary` | mutual information averaged over a band around the predicted contour, where segmentation errors concentrate; whole-image averages dilute it with confident background |
+| `region` | mean of the most uncertain 5 % of pixels, sensitive to one badly segmented structure |
+| `random` | baseline |
+
+`--diverse` avoids spending the budget on near-duplicates (consecutive endoscopy frames, the
+same lesion type): it keeps the `pool-factor × budget` most uncertain images and picks the
+batch by greedy k-centre (core-set) on bottleneck embeddings, seeded with the images that are
+already labelled.
+
+```bash
+python tools/active_select.py --checkpoint runs/kvasir_seg/best.pth --unlabelled pool/images \
+    --labelled data/Kvasir-SEG/train/images --budget 50 --strategy boundary --diverse --out next_batch.csv
+```
+
+The CSV lists every image with all scores and the rank of the selected ones. A typical loop
+is: train, select, annotate, add to the training folder, retrain.
+
 ## Experimental protocol
 
 `bash scripts/run_ablations.sh` trains every configuration below with three seeds. It
@@ -204,9 +231,10 @@ bau-net/
 │   ├── data/                 # folder & synthetic datasets, joint augmentations
 │   ├── engine.py             # trainer (AMP, warmup-cosine, early stopping), evaluation
 │   ├── export.py             # ONNX export + ONNX Runtime parity check
+│   ├── active.py             # acquisition scores, k-centre batch selection
 │   └── utils/                # YAML configs with inheritance, seeding, logging
 ├── configs/                  # datasets, backbones/, ablations/
-├── tools/                    # train / evaluate / predict / benchmark / export_onnx / demo_figure
+├── tools/                    # train / evaluate / predict / benchmark / export_onnx / active_select / demo_figure
 ├── assets/                   # README demo media
 ├── scripts/                  # data preparation, splits, ablation runner, result tables
 └── tests/                    # unit + smoke tests for every component
@@ -230,6 +258,7 @@ bau-net/
 - Chen et al., *TransUNet*, 2021 · Liu et al., *A ConvNet for the 2020s*, CVPR 2022
 - Ma et al., *How Distance Transform Maps Boost Segmentation CNNs*, MIDL 2020
 - Cheng et al., *Boundary IoU*, CVPR 2021 · Gal & Ghahramani, *MC-Dropout*, ICML 2016
+- Houlsby et al., *BALD*, 2011 · Gal et al., *Deep Bayesian Active Learning with Image Data*, ICML 2017 · Sener & Savarese, *Core-Set Active Learning*, ICLR 2018
 - Jungo & Reyes, *Assessing Reliability and Challenges of Uncertainty Estimations for Medical Image Segmentation*, MICCAI 2019
 
 ## License
